@@ -6,12 +6,14 @@ function delete_igw() {
 	set +e
 	local region=$1
 	local vpc=$2
-	igw=$(aws ec2 describe-internet-gateways --filters Name=attachment.vpc-id,Values=$vpc --region $region | jq '.InternetGateways | .[] | .InternetGatewayId' | tr -d '"')
-	if [ ! -z "$igw" ]; then
-		aws ec2 detach-internet-gateway --internet-gateway-id $igw --vpc-id $vpc --region $region
-		if [ $? -eq 0 ]; then
-			aws ec2 delete-internet-gateway --internet-gateway-id $igw --region $region
-		fi
+	igws=$(aws ec2 describe-internet-gateways --filters Name=attachment.vpc-id,Values=$vpc --region $region | jq '.InternetGateways | .[] | .InternetGatewayId' | tr -d '"')
+	if [ ! -z "$igws" ]; then
+		for igw_id in $igws; do
+			aws ec2 detach-internet-gateway --internet-gateway-id $igw_id --vpc-id $vpc --region $region
+			if [ $? -eq 0 ]; then
+				aws ec2 delete-internet-gateway --internet-gateway-id $igw_id --region $region
+			fi
+		done
 	fi
 	set -e
 }
@@ -60,16 +62,22 @@ function delete_security_groups() {
 	set -e
 }
 
+function delete_dhcp_options() {
+	set +e
+	local region=$1
+	dhcp_ops=$(aws ec2 describe-dhcp-options --filters "Name=key,Values=domain-name-servers,Name=value,Values=AmazonProvidedDNS" --region $region | jq '.DhcpOptions | .[] | .DhcpOptionsId' | tr -d '"')
+	for dhcp_ops_id in $dhcp_ops; do
+		aws ec2 delete-dhcp-options --dhcp-options-id $dhcp_ops_id --region $region
+	done
+	set -e
+}
+
 function delete_vpc() {
 	set +e
 	local region=$1
 	local vpc=$2
 
-	if [ $vpc == "none" ]; then
-		echo "no default vpc to delete"
-	else
-		aws ec2 delete-vpc --vpc-id $vpc --region $region
-	fi
+	aws ec2 delete-vpc --vpc-id $vpc --region $region
 
 	set -e
 }
@@ -78,6 +86,14 @@ regions=$(aws ec2 describe-regions | jq '.[] | .[].RegionName' | tr -d '"')
 for region in $regions; do
 	echo "starting ${region}..."
 	vpc_id=$(aws ec2 describe-account-attributes --attribute-name default-vpc --region $region | jq '.AccountAttributes | .[].AttributeValues | .[] | .AttributeValue' | tr -d '"')
+
+	if [ "$vpc_id" == "none" ]; then
+		echo "There is no default vpc to delete."
+		echo
+		echo "attempting to delete left over DHCP options for good measure"
+		delete_dhcp_options $region $vpc_id
+		continue
+	fi
 	echo "detaching and deleting igw..."
 	delete_igw $region $vpc_id
 	echo "deleting subnets..."
@@ -88,8 +104,10 @@ for region in $regions; do
 	delete_acls $region $vpc_id
 	echo "deleting security groups..."
 	delete_security_groups $region $vpc_id
-	echo "deleting vpc..."
+	echo "deleting vpc (${vpc_id})..."
 	delete_vpc $region $vpc_id
+	echo "deleting left over DHCP options"
+	delete_dhcp_options $region $vpc_id
 done
 
 # get account atrributes
