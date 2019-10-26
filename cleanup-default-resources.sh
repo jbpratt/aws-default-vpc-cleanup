@@ -86,13 +86,11 @@ regions=$(aws ec2 describe-regions | jq '.[] | .[].RegionName' | tr -d '"')
 for region in $regions; do
 	echo "starting ${region}..."
 	vpc_id=$(aws ec2 describe-account-attributes --attribute-name default-vpc --region $region | jq '.AccountAttributes | .[].AttributeValues | .[] | .AttributeValue' | tr -d '"')
-
 	if [ "$vpc_id" == "none" ]; then
 		echo "There is no default vpc to delete."
 		echo
 		echo "attempting to delete left over DHCP options for good measure"
 		delete_dhcp_options $region $vpc_id
-		continue
 	fi
 	echo "detaching and deleting igw..."
 	delete_igw $region $vpc_id
