@@ -61,6 +61,16 @@ function delete_security_groups() {
 	set -e
 }
 
+function delete_dhcp_options() {
+	set +e
+	local region=$1
+	dhcp_ops=$(aws ec2 describe-dhcp-options --filters "Name=key,Values=domain-name-servers,Name=value,Values=AmazonProvidedDNS" --region "${region}" | jq '.DhcpOptions | .[] | .DhcpOptionsId' | tr -d '"')
+	for dhcp_ops_id in $dhcp_ops; do
+		aws ec2 delete-dhcp-options --dhcp-options-id "${dhcp_ops_id}" --region "${region}"
+	done
+	set -e
+}
+
 function delete_vpc() {
 	set +e
 	local region=$1
@@ -79,8 +89,9 @@ for region in $regions; do
 	if [ "${vpc}" == "none" ]; then
 		echo "no default vpc to delete"
 		echo "moving on..."
-		echo
-		continue
+
+		echo "attempting to delete left over DHCP options for good measure"
+		delete_dhcp_options "${region}" "${vpc_id}"
 	fi
 	echo "detaching and deleting igw..."
 	delete_igw "${region}" "${vpc_id}"
@@ -94,6 +105,8 @@ for region in $regions; do
 	delete_security_groups "${region}" "${vpc_id}"
 	echo "deleting vpc (${vpc_id})..."
 	delete_vpc "${region}" "${vpc_id}"
+	echo "deleting left over DHCP options"
+	delete_dhcp_options "${region}" "${vpc_id}"
 done
 
 # get account atrributes
