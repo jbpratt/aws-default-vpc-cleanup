@@ -1,90 +1,87 @@
 #!/bin/bash
 
-set -e
-
 function delete_igw() {
-	set +e
 	local region=$1
 	local vpc=$2
 	igws=$(aws ec2 describe-internet-gateways --filters Name=attachment.vpc-id,Values="${vpc}" --region "${region}" | jq '.InternetGateways | .[] | .InternetGatewayId' | tr -d '"')
 	if [ -n "$igws" ]; then
 		for igw_id in $igws; do
 			if aws ec2 detach-internet-gateway --internet-gateway-id "${igw_id}" --vpc-id "${vpc}" --region "${region}"; then
+				echo "detached ${igw_id} from ${vpc}"
 				aws ec2 delete-internet-gateway --internet-gateway-id "${igw_id}" --region "${region}"
+				echo "deleted ${igw_id}"
 			fi
 		done
 	fi
-	set -e
+
 }
 
 function delete_subnets() {
-	set +e
 	local region=$1
 	local vpc=$2
 	subnets=$(aws ec2 describe-subnets --filters Name=vpc-id,Values="${vpc}" --region "${region}" | jq '.[] | .[].SubnetId' | tr -d '"')
 	for subnet_id in $subnets; do
 		aws ec2 delete-subnet --subnet-id "${subnet_id}" --region "${region}"
+		echo "deleted ${subnet_id}"
 	done
-	set -e
 }
 
 function delete_route_tables() {
-	set +e
 	local region=$1
 	local vpc=$2
 	rts=$(aws ec2 describe-route-tables --filters Name=vpc-id,Values="${vpc}" --region "${region}" | jq '.RouteTables | .[].Associations | .[] | select(.Main != true) | .RouteTableId' | tr -d '"')
 	for rt_id in $rts; do
 		aws ec2 delete-route-table --route-table-id "${rt_id}" --region "${region}"
+		echo "deleted ${rt_id}"
 	done
-	set -e
 }
 
 function delete_acls() {
-	set +e
 	local region=$1
 	local vpc=$2
 	acls=$(aws ec2 describe-network-acls --filters Name=vpc-id,Values="${vpc}" --region "${region}" | jq '.NetworkAcls | .[] | select(.IsDefault != true) | .NetworkAclId' | tr -d '"')
 	for acl_id in $acls; do
 		aws ec2 delete-network-acl --network-acl-id "${acl_id}" --region "${region}"
+		echo "deleted ${acl_id}"
 	done
-	set -e
 }
 
 function delete_security_groups() {
-	set +e
 	local region=$1
 	local vpc=$2
 	sgps=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values="${vpc}" --region "${region}" | jq '.SecurityGroups | .[] | select(.GroupName != "default") | .GroupId' | tr -d '"')
 	for sgp_id in $sgps; do
 		aws ec2 delete-security-group --group-id "${sgp_id}" --region "${region}"
+		echo "deleted ${sgp_id}"
 	done
-	set -e
 }
 
 function delete_dhcp_options() {
-	set +e
 	local region=$1
 	dhcp_ops=$(aws ec2 describe-dhcp-options --filters "Name=key,Values=domain-name-servers,Name=value,Values=AmazonProvidedDNS" --region "${region}" | jq '.DhcpOptions | .[] | .DhcpOptionsId' | tr -d '"')
 	for dhcp_ops_id in $dhcp_ops; do
 		aws ec2 delete-dhcp-options --dhcp-options-id "${dhcp_ops_id}" --region "${region}"
+		echo "deleted ${dhcp_ops_id}"
 	done
-	set -e
 }
 
 function delete_vpc() {
-	set +e
 	local region=$1
 	local vpc=$2
-
 	aws ec2 delete-vpc --vpc-id "${vpc}" --region "${region}"
-
-	set -e
+	echo "deleted ${vpc}"
 }
 
 regions=$(aws ec2 describe-regions | jq '.[] | .[].RegionName' | tr -d '"')
+
+if [[ $(aws sts get-caller-identity 2> >(grep -c 'invalid')) -eq 1 ]]; then
+	exit
+fi
+
 for region in $regions; do
 	echo "starting ${region}..."
-	vpc_id=$(aws ec2 describe-account-attributes --attribute-name default-vpc --region "${region}" | jq '.AccountAttributes | .[].AttributeValues | .[] | .AttributeValue' | tr -d '"')
+	vpc_id=$(aws ec2 describe-account-attributes --attribute-name default-vpc \
+		--region "${region}" | jq '.AccountAttributes | .[].AttributeValues | .[] | .AttributeValue' | tr -d '"')
 
 	if [ "${vpc}" == "none" ]; then
 		echo "no default vpc to delete"
