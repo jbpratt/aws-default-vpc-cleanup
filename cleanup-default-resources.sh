@@ -90,7 +90,7 @@ function delete_vpc() {
 	echo "deleted ${vpc}"
 }
 
-if [[ $(aws sts get-caller-identity 2> >(grep -c 'invalid')) -eq 1 ]]; then
+if aws sts get-caller-identity 2> >(grep -qc 'invalid') -eq 1; then
 	exit
 fi
 
