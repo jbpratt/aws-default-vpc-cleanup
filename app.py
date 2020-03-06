@@ -7,7 +7,7 @@ def main() -> None:
     for region in boto3.client("ec2").describe_regions().get("Regions", {}):
         print(f"starting in {region}")
 
-        ec2_client = boto3.client("ec2", region_name=region)
+        ec2_client = boto3.client("ec2", region_name=region.get("RegionName"))
         try:
             acct_attr_res: Dict = ec2_client.describe_account_attributes(
                 AttributeNames=["default-vpc"]
